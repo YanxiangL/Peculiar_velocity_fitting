@@ -1,0 +1,1 @@
+We have provied here the grid correction function for grid size of 5 Mpc/h, 10 Mpc/h, 15 Mpc/h and 20 Mpc/h. We have used 20 Mpc/h grid during our fitting. The other file in this folder is the velocity auto-, matter auto- and matter velocity cross-power spectrum we used to fit the SDSS data.   
