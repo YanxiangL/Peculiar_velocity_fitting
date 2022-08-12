@@ -1,1 +1,1 @@
-
+You can access the random file and mocks here https://zenodo.org/record/6640513. They are too big to upload to Github. 
