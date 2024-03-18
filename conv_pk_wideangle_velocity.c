@@ -725,13 +725,20 @@ int main(int argc, char **argv) {
         exit(0);
     }
 
-    double omega_m = 0.3121;    // The value of omega_m used to generate the simulations
+    //double omega_m = 0.3121;    // The value of omega_m used to generate the simulations
     double kmin = atof(argv[1]);    // The minimum k-value to include information for
     double kmax = atof(argv[2]);    // The maximum k-value to include information for
     int gridsize = atoi(argv[3]);   // The size of each grid cell
     pkvelfile = argv[4];            // The file containing the input velocity power spectrum
     covfile_base = argv[5];         // The base for the output file name (other stuff will get added to the name)
 	double job_num = atof(argv[6]);	// The job number of getafix
+	double xmin = atof(argv[7]); //The xmin for the simulation. 
+	double xmax = atof(argv[8]); //The xmax for the simulation.
+	double ymin = atof(argv[9]); //The ymin for the simulation. 
+	double ymax = atof(argv[10]); //The ymax for the simulation. 
+	double zmin = atof(argv[11]); //The zmin for the simulation. 
+	double zmax = atof(argv[12]); //The zmax for the simulation. 
+	double omega_m = atof(argv[13]); //The matter density \Omega_m used to generate the simulation. 
 
 	sigma_u = job_num;
 
@@ -741,9 +748,9 @@ int main(int argc, char **argv) {
     //*****************************************************************************************//
     // I've decided to centre the grid on 0,0,0 so that we don't have any cell centres that are very close to the origin
 	//These are the grid cells for the SDSS survey.
-    double xmin = -170.0, xmax = 210.0;
-    double ymin = -260.0, ymax = 280.0;
-    double zmin = -300.0, zmax = 0.0;
+    //double xmin = -170.0, xmax = 210.0;
+    //double ymin = -260.0, ymax = 280.0;
+    //double zmin = -300.0, zmax = 0.0;
     double smin = 0.0, smax = sqrt((xmax-xmin)*(xmax-xmin) + (ymax-ymin)*(ymax-ymin) + (zmax-zmin)*(zmax-zmin))+gridsize;
     int nx = (int)ceil((xmax-xmin)/gridsize);
     int ny = (int)ceil((ymax-ymin)/gridsize);
@@ -911,7 +918,7 @@ int main(int argc, char **argv) {
 	// and is only non-zero for l=0
 	double theta_diag = 0.0; 
 	double phi_diag = 0.0; 
-	//At the diagonal of the matrix, line of sight to two galaxies overlap, so theta = 0, and phi = pi/2. This is because cos(phi) = s dot d = 0;
+	//At the diagonal of the matrix, line of sight to two galaxies overlap, so theta = 0, and phi = pi/2. This is because cos(phi) = s dot d = 0, it is set to zero here because it is irrelavent when calculating the diagonal;
 	
 	double diag_vv = conv_integral(kmin, kmax, 0.0, 2, 0, -2, 1, 2)*H_vv(0, theta_diag, phi_diag);
 	double diag_vv_ng = conv_integral(kmin, kmax, 0.0, 2, 0, -2, 0, 2)*H_vv(0, theta_diag, phi_diag);
