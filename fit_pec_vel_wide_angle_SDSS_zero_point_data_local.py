@@ -22,6 +22,7 @@ from scipy.linalg import lapack
 import pandas as pd
 import math
 from multiprocessing import Pool
+from configobj import ConfigObj
 
 # Speed of light in km/s
 LightSpeed = 299792.458
@@ -454,72 +455,38 @@ def lnlike(params):
     
     return loglike
 
-fsigma8_old = 0.8150         # The value of fsigma8 used to compute the covariance matrix. 
-sigmab_square = 0.004**2     # The uncertainty of the zero-point correction. 
-bsigma8_old = 0.8150         # The value of bsigma8 used to compute the covariance matrix. 
-r_g = 1.0                    # The galaxy–matter cross-correlation coefficient. It is not being used in the code
-omega_m = 0.3121             # The fiducial matter density at redshift zero. 
 
-# Make sure these match the values used to estimate the covariance matrix
-kmin = float(sys.argv[1])    # What kmin to use
-kmax_galaxy = float(sys.argv[2])    # What kmax to use
-gridsize = int(sys.argv[3])  # What gridsize to use
-progress = bool(sys.argv[4])  # Whether or not to print out progress
-sigma_u = int(sys.argv[5]) #Total number of different values of sigmau.
-sigma_g = int(sys.argv[6])  #This is the fiducial value of sigma_g to use. 
-kmax_velocity = float(sys.argv[7]) #kmax for the velocity field. Should match kmax_galaxy.  
-effective_redshift = float(sys.argv[8]) # The effective redshift of the survey.
-sigma8_eff = float(sys.argv[9]) #The value of sigma8 with the fiducial cosmology at the effective redshift. 
+########################################################################################################### The main code below
+configfile = sys.argv[1] #input the location of the configuration file 
+pardict = ConfigObj(configfile)
 
-# expect_file = str('/Volumes/Work/UQ/SDSS_dists/data/SDSS_randoms.csv')
-
-
-# datafile = str("/Volumes/Work/UQ/SDSS_dists/mocks/v4/MOCK_HAMHOD_SDSS_v4_R"+str(int(19000+file_num))+"."+str(dot_num)+"_err_corr_again")
-
-# expect_file = str('SDSS_randoms.csv')
-# datafile = str("./SDSS_mocks/MOCK_HAMHOD_SDSS_v4_R"+str(int(19000+file_num))+"."+str(dot_num)+"_err_corr_again")
-
-# if (correction == 0):
-#     chainfile = str('fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_no_correction_sigmau_%d_sigmag_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u, sigma_g))
-# elif (correction == 1):
-#     chainfile = str('fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_correction_sigmau_%d_sigmag_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u, sigma_g))
-
-# expect_file = str('SDSS_randoms.csv')
-# datafile = str("./SDSS_mocks/MOCK_HAMHOD_SDSS_v4_R"+str(int(19000+file_num))+"."+str(dot_num)+"_err_corr_again")
-
-# if (correction == 0):
-#     chainfile = str('fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_no_correction_sigmau_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u))
-# elif (correction == 1):
-#     chainfile = str('fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_correction_sigmau_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u))
-
-# expect_file = str('/data/s4479813/SDSS_randoms.csv')
-#The random file. 
-expect_file = str('SDSS_randoms.csv')
-
-#The data file.
-# datafile = str("/data/s4479813/SDSS_PV_public_full_reformat.dat")
-datafile = str("SDSS_PV_public_full_reformat.dat")
-
-# if (correction == 0):
-#     chainfile = str('/data/s4479813/SDSS_data/fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_no_correction_sigmau_%d_sigmag_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u, sigma_g))
-# elif (correction == 1):
-#     chainfile = str('/data/s4479813/SDSS_data/fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_correction_sigmau_%d_sigmag_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u, sigma_g))
+expect_file = pardict['expect_file']
+datafile = pardict['datafile']
+omega_m = float(pardict['omega_m'])
+fsigma8_old = float(pardict['fsigma8_old'])
+sigmab_square = float(pardict['sigma_b'])**2
+bsigma8_old = float(pardict['bsigma8_old'])
+r_g = float(pardict['r_g'])
+kmin = float(pardict['kmin'])
+kmax_galaxy = float(pardict['kmax_galaxy'])
+kmax_velocity = float(pardict['kmax_velocity'])
+gridsize = int(pardict['gridsize'])
+progress = bool(int(pardict['progress']))
+sigma_u = float(pardict['sigma_u'])
+sigma_g = float(pardict['sigma_g'])
+effective_redshift = float(pardict['effective_redshift'])
+sigma8_eff = float(pardict['sigma8_eff'])
+xmin = float(pardict['xmin'])
+xmax = float(pardict['xmax'])
+ymin = float(pardict['ymin'])
+ymax = float(pardict['ymax'])
+zmin = float(pardict['zmin'])
+zmax = float(pardict['zmax'])
 
 #The name of the chain file. 
-# chainfile = str('/data/s4479813/SDSS_data/fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_full_data_sigmau_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, sigma_u))
 chainfile = str('fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_full_data_sigmau_%d_Taylor_local_remove_no_cut.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, sigma_u))
 
-# if (correction == 0):
-#     chainfile = str('/data/s4479813/SDSS_data/fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_no_correction_sigmau_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u))
-# elif (correction == 1):
-#     chainfile = str('/data/s4479813/SDSS_data/fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_%d_full_correction_sigmau_%d_Taylor.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, mock_num, sigma_u))
 
-
-# Generate the grid used to compute the covariance matrix. Again make sure these match the covariance matrix code. The grid I am using here only 
-#suitable for SDSS PV catalogue. If you are using a different dataset, change these accordingly. 
-xmin, xmax = -170.0, 210.0
-ymin, ymax = -260.0, 280.0
-zmin, zmax = -300.0, 0.0
 nx = int(np.ceil((xmax-xmin)/gridsize))
 ny = int(np.ceil((ymax-ymin)/gridsize))
 nz = int(np.ceil((zmax-zmin)/gridsize))
@@ -567,6 +534,7 @@ print(factor_gg, factor_gv, factor_vv)
 data_expect_all = np.array(pd.read_csv(expect_file, header=None, skiprows=1))
 
 #convert from degree to radian. 
+#The first three coloums of the random file should be RA, Dec, and redshift. 
 RA_expect = data_expect_all[:, 0]/180.0*np.pi
 Dec_expect = data_expect_all[:, 1]/180.0*np.pi
 redshift_expect = data_expect_all[:, 2]
