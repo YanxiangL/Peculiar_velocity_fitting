@@ -1,5 +1,5 @@
 # Wide-angle peculiar velocity fitting code
-This repository includes the c code to generate the covariance matrix and the python code to fit fsigma8 with the covariance matrices. The output covariance matrix assumes f=b=1, they will be rescaled in the python fitting code. \\
+1. This repository includes the c code to generate the covariance matrix and the python code to fit fsigma8 with the covariance matrices. The output covariance matrix assumes f=b=1, they will be rescaled in the python fitting code. <br />
 To run the python code, you need to install numpy, scipy, emcee and pandas. It reads in a config file that 
 The grid correction files and the power spectrum we used to analyse the SDSS PV catalogue is in the grid_correction folder. The data file is in the data folder. 
 You can modify the code to fit other surveys as well. I have indicated which lines you need to change if you are using a different survey in the python and c code. 
