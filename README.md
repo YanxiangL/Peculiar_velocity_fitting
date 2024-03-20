@@ -8,5 +8,5 @@
 7. The grid correction files and the power spectrum we used to analyse the SDSS PV catalogue is in the grid_correction folder. The data file is in the data folder.  <br />
 8. Our python and c code only calculate the covariance matrix with the Taylor expansion of D_g up to the third order. You can use the Mathematica note book provided to calculate the covariance matrix with higher order of Taylor expansion. <br />
 9. The mocks and random can be accessed through this website https://zenodo.org/record/6640513.
-10. To copy this repository run "git clone <url> --branch desi".
+10. To copy this repository run "git clone https://github.com/YanxiangL/Peculiar_velocity_fitting.git --branch desi".
 
