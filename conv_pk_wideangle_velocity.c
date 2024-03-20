@@ -11,6 +11,7 @@
 #include <gsl/gsl_linalg.h>
 #include <gsl/gsl_sf_gamma.h>
 #include <gsl/gsl_integration.h>
+#include "./inih/ini.h"
 
 // Code to calculate the covariance matrix for fitting the peculiar velocities of the 2MTF simulations.
 // Generates a grid covering -120<x<120 Mpc/h and similar for y/z so should cover the full data.
@@ -712,20 +713,105 @@ void write_cov(char * covfile, int ncov, double ** cov, int order) {//create the
 
 }
 
+typedef struct
+{
+	double xmin;
+	double xmax;
+	double ymin;
+	double ymax;
+	double zmin;
+	double zmax;
+	double kmin;
+	double kmax;
+	double omega_m;
+	int gridsize;
+	char* pkvelfile;
+	char* covfile_base;
+} configuration;
+
+static int handler(void* user, const char* section, const char* name,
+                   const char* value)
+{
+    configuration* pconfig = (configuration*)user;
+
+    #define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
+    if (MATCH("", "kmin")) {
+        pconfig->kmin = atof(value);
+    } else if (MATCH("", "kmax")) {
+        pconfig->kmax = atof(value);
+    } else if (MATCH("", "xmin")) {
+        pconfig->xmin = atof(value);
+    } else if (MATCH("", "xmax")) {
+        pconfig->xmax = atof(value);
+	} else if (MATCH("", "ymin")) {
+        pconfig->ymin = atof(value);
+    } else if (MATCH("", "ymax")) {
+        pconfig->ymax = atof(value);
+	} else if (MATCH("", "zmin")) {
+        pconfig->zmin = atof(value);
+    } else if (MATCH("", "zmax")) {
+        pconfig->zmax = atof(value);
+	} else if (MATCH("", "omega_m")) {
+        pconfig->omega_m = atof(value);
+    } else if (MATCH("", "gridsize")) {
+        pconfig->gridsize = atoi(value);
+	} else if (MATCH("", "pkvelfile")) {
+        pconfig->pkvelfile = strdup(value);
+    } else if (MATCH("", "covfile_base")) {
+        pconfig->covfile_base = strdup(value);
+	} else {
+        return 0;  /* unknown section/name, error */
+    }
+    return 1;
+}
+
+
+
 int main(int argc, char **argv) {
 
     FILE * fp;
     char buf[500];
     int i, j, k, ell, veltype;
     char gridcorrfile[500], covfile[500];
-    char * pkvelfile, * covfile_base;
-
-    if (argc < 6) {
-        printf("Error: 6 command line arguments required\n");
+    char * pkvelfile, * covfile_base, * configfile;
+	
+	//config stores the variables read from the configuration file. 
+	configuration config;
+	configfile = argv[1]; //The location of the configuration file 
+	double job_num = atof(argv[2]); //The job number that is used to determine sigma_u. Enter a negative number if you just want to check whether the configuration file is being read correctly without running the code. 
+	
+	if (ini_parse(configfile, handler, &config) < 0) {
+        printf("Can't load the configuration file \n");
+        return 1;
+    }
+	
+	double kmin = config.kmin; // The minimum k-value to include information for
+	double kmax = config.kmax; // The maximum k-value to include information for
+	double xmin = config.xmin; //The xmin for the simulation. 
+	double xmax = config.xmax; //The xmax for the simulation.
+	double ymin = config.ymin; //The ymin for the simulation.
+	double ymax = config.ymax; //The ymax for the simulation. 
+	double zmin = config.zmin; //The zmin for the simulation. 
+	double zmax = config.zmax; //The zmax for the simulation. 
+	double omega_m = config.omega_m; //The matter density \Omega_m used to generate the simulation. 
+	int gridsize = config.gridsize; // The size of each grid cell
+	pkvelfile = config.pkvelfile; // The file containing the input velocity power spectrum
+	covfile_base = config.covfile_base; // The base for the output file name (other stuff will get added to the name)
+	
+	printf("Config loaded from '%s': kmin=%lf, kmax=%lf, xmin=%lf, xmax = %lf,\n ymin=%lf, ymax = %lf, zmin=%lf, zmax = %lf, omega_m = %lf, gridsize = %d,\n pkvelfile = %s, covfile_base = %s\n",
+        configfile, kmin, kmax, xmin, xmax, ymin, ymax, zmin, zmax, omega_m, gridsize, pkvelfile, covfile_base);
+		
+	if (argc < 2) {
+        printf("Error: 2 command line arguments required\n");
         exit(0);
     }
+	
+	if (job_num < 0.0) {
+		printf("Checking whether the configuration file is being read correctly\n");
+		exit(0);
+	}
 
-    //double omega_m = 0.3121;    // The value of omega_m used to generate the simulations
+    /*//double omega_m = 0.3121;    // The value of omega_m used to generate the simulations
     double kmin = atof(argv[1]);    // The minimum k-value to include information for
     double kmax = atof(argv[2]);    // The maximum k-value to include information for
     int gridsize = atoi(argv[3]);   // The size of each grid cell
@@ -738,7 +824,7 @@ int main(int argc, char **argv) {
 	double ymax = atof(argv[10]); //The ymax for the simulation. 
 	double zmin = atof(argv[11]); //The zmin for the simulation. 
 	double zmax = atof(argv[12]); //The zmax for the simulation. 
-	double omega_m = atof(argv[13]); //The matter density \Omega_m used to generate the simulation. 
+	double omega_m = atof(argv[13]); //The matter density \Omega_m used to generate the simulation.*/ 
 
 	sigma_u = job_num;
 
