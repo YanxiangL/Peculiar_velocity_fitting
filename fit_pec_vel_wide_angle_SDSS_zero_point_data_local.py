@@ -24,22 +24,27 @@ import math
 from multiprocessing import Pool
 from configobj import ConfigObj
 
+#Cross reference https://arxiv.org/abs/2209.04166 for more detail on the derivations. 
+
 # Speed of light in km/s
 LightSpeed = 299792.458
 
-def get_max_dL(params_fid):
+def get_max_dL(params_fid, deri_cal = False):
     """
-    This function finds the loglikelihood given fiducial values. 
+    This function finds the loglikelihood from input parameters. 
 
     Parameters
     ----------
     params_fid : Numpy array.
         This array contains the fiducial value for fsigma8, sigma_v, bsigma8, b_addsigma8 and sigma_g.
+        
+    deri_cal: Boolean.
+        Set to true if you want to return other variables to calculate the derivatives of the covariance matrix with respect to the input parameters. 
 
     Raises
     ------
     ValueError
-        If the input covariance matrix gives negative chi-squared value, a value error will be raised.
+        If the input covariance matrix is not semi-definite positive, a value error will be raised.
 
     Returns
     -------
@@ -87,12 +92,15 @@ def get_max_dL(params_fid):
     #This is the loglikelihood after marginalizing over the zero-point.  
     loglikefid = -0.5*(chisquared_fid + detCfid + factor_1 + factor_3)
     
-    return loglikefid
+    if deri_cal == False:
+        return loglikefid
+    if deri_cal == True:
+        return loglikefid, sigmag_array, Cfid, x2_Cinv, factor_u, factor_a, factor_b
 
 def get_dL(params_fid):
     """
-    This function finds the derivative and the second derivative of the likelihood function with respect to fsigma8, sigma_v, bsigma8, b_addsigma8, and sigma_g at their 
-    given fiducial values. 
+    This function finds the first and the second derivative of the likelihood function with respect to fsigma8, sigma_v, bsigma8, b_addsigma8, and sigma_g 
+    at their given fiducial values. 
 
     Parameters
     ----------
@@ -102,7 +110,7 @@ def get_dL(params_fid):
     Raises
     ------
     ValueError
-        If the input covariance matrix gives negative chi-squared value, a value error will be raised.
+        If the input covariance matrix is not semi-definite positive, a value error will be raised.
 
     Returns
     -------
@@ -117,48 +125,55 @@ def get_dL(params_fid):
     
     #The first half of this function (up to log likelihood calculation) is the same as the previous function. Check the comment for more detail. 
     
-    #Read in the fiducial values. 
-    ffid, sigma_v_fid, bfid, baddfid, sigmag_fid = params_fid
+    # #Read in the fiducial values. 
+    # ffid, sigma_v_fid, bfid, baddfid, sigmag_fid = params_fid
     
-    #Construct the analytical covariance matrix with the fiducial free parameters. 
-    sigmag_array = np.array([sigmag_fid**(2*n) for n in range(0,7)])
-    #The first derivative with respect to sigmag. 
-    dsigmag_array = np.array([2.0*n*sigmag_fid**(2*n-1) for n in range(0,7)])
+    # #Construct the analytical covariance matrix with the fiducial free parameters. 
+    # sigmag_array = np.array([sigmag_fid**(2*n) for n in range(0,7)])
     
-    Cfid = np.sum(sigmag_array*(bfid**2*conv_b + bfid*ffid*conv_bf + ffid**2*conv_f + baddfid**2*conv_badd), axis=-1) + sigma_v_fid**2*conv_sigma_v + conv_noise
+    # Cfid = np.sum(sigmag_array*(bfid**2*conv_b + bfid*ffid*conv_bf + ffid**2*conv_f + baddfid**2*conv_badd), axis=-1) + sigma_v_fid**2*conv_sigma_v + conv_noise
     
-    #Find the log determinant of the fiducial covariance matrix.
-    detCfid = np.linalg.slogdet(Cfid)[1]
+    # #Find the log determinant of the fiducial covariance matrix.
+    # detCfid = np.linalg.slogdet(Cfid)[1]
+    
+    # #Find the extra factors due to the zero-point correction. 
+    # x2_Cinv = np.matmul(Cfid_inv, x_2)
+    
+    # chi_sq_x2 = np.matmul(x_2.T, x2_Cinv)[0][0]
+    # factor_u = 1.0 + chi_sq_x2*sigmab_square
+    
+    # factor_x2 = -np.matmul(x2_Cinv, x2_Cinv.T)
+    # factor_1 = np.log(factor_u)
+    # factor_1_derivative = 1.0/(factor_u)*sigmab_square*factor_x2
+    
+    # factor_a = np.matmul(datagrid_comp_new.T, x2_Cinv)[0][0]
+    # factor_b = chi_sq_x2 + sigmab_square**(-1)
+    # #This is -Ny^2/Nx^2
+    # factor_3 = -factor_a**2/factor_b
+    
+    # #Find the fiducial chi-squared and the fiducial log likelihood.
+    # chisquared_fid = datagrid_comp @ Cfid_inv @ datagrid_comp
+    # # chisquared_fid = np.matmul(datagrid_comp.T, np.linalg.solve(Cfid, datagrid_comp))
+    # if (chisquared_fid < 0):
+    #     raise ValueError('Negative chi-squared')
+    # # loglikefid = -0.5*(chisquared_fid + detCfid + factor_1[0][0] + factor_2[0][0] + factor_3[0][0])
+    # loglikefid = -0.5*(chisquared_fid + detCfid + factor_1 + factor_3)
+    
+    #Calculate the loglikelihood and other necessary factors. 
+    loglikefid, sigmag_array, Cfid, x2_Cinv, factor_u, factor_a, factor_b = get_max_dL(params_fid, deri_cal = True)
     
     #Find the inverse of the fiducial covariance matrix.
     Cfid_inv = np.linalg.solve(Cfid, np.eye(int(ncomp_velocity + ncomp_galaxy)))
     
-    #Find the extra factors due to the zero-point correction. 
-    x2_Cinv = np.matmul(Cfid_inv, x_2)
-    
-    
-    chi_sq_x2 = np.matmul(x_2.T, x2_Cinv)[0][0]
-    factor_u = 1.0 + chi_sq_x2*sigmab_square
+    #The first derivative with respect to sigmag. 
+    dsigmag_array = np.array([2.0*n*sigmag_fid**(2*n-1) for n in range(0,7)])
     
     factor_x2 = -np.matmul(x2_Cinv, x2_Cinv.T)
-    factor_1 = np.log(factor_u)
     factor_1_derivative = 1.0/(factor_u)*sigmab_square*factor_x2
     
-    factor_a = np.matmul(datagrid_comp_new.T, x2_Cinv)[0][0]
-    factor_b = chi_sq_x2 + sigmab_square**(-1)
     da_dC = np.matmul(np.matmul(-Cfid_inv, datagrid_comp_new), x2_Cinv.T)
     db_dC = factor_x2
-    #This is -Ny^2/Nx^2
-    factor_3 = -factor_a**2/factor_b
     factor_3_derivative = (-2.0*factor_a*da_dC*factor_b + db_dC*factor_a**2)/factor_b**2
-    
-    #Find the fiducial chi-squared and the fiducial log likelihood.
-    chisquared_fid = datagrid_comp @ Cfid_inv @ datagrid_comp
-    # chisquared_fid = np.matmul(datagrid_comp.T, np.linalg.solve(Cfid, datagrid_comp))
-    if (chisquared_fid < 0):
-        raise ValueError('Negative chi-squared')
-    # loglikefid = -0.5*(chisquared_fid + detCfid + factor_1[0][0] + factor_2[0][0] + factor_3[0][0])
-    loglikefid = -0.5*(chisquared_fid + detCfid + factor_1 + factor_3)
     
     # Derivatices of the analytical covariance matrix with respect to each free parameter. 
     dCdb = np.sum(sigmag_array*(2.0*bfid*conv_b + ffid*conv_bf), axis=-1)
@@ -246,6 +261,7 @@ def get_dL(params_fid):
     dCdsigmav_t18 = np.matmul(t13, dCdsigmav_Cfid_inv)
     # print(np.shape(dCdb_t4), np.shape(dCdb_t5), np.shape(dCdb_t12), np.shape(dCdb_t17), np.shape(dCdb_t18))
     
+    #The following codes calculate the second derivative of the covariance matrix with respect to the input parameters. 
     t6 = factor_a**2
     t7 = factor_b**2
     t9 = t6/t7
@@ -329,31 +345,131 @@ def get_dL(params_fid):
 
     return loglikefid, dL, d2L
 
-#This function generates a file to store the chain of the MCMC process. 
 def read_chain_backend(chainfile):
+    """
+    This function generates reads in the HDF5 format chain file and return the chain, the best fit, and the list of log likelihood.     
+
+    Parameters
+    ----------
+    chainfile : str
+        Location of the chain file.
+
+    Returns
+    -------
+    samples : Numpy array
+        A numpy array containing the parameters evaluated during the MCMC (minus the burnin).
+    copy.copy(samples[bestid]) : Numpy array
+        The best fit parameters.
+    log_prob_samples : Numpy array
+        The log-likelihood values.
+
+    """
 
     reader = backends.HDFBackend(chainfile)
-
+    
+    #Remove the burnin. 
     tau = reader.get_autocorr_time()
     burnin = int(2 * np.max(tau))
+    #Get the chain. 
     samples = reader.get_chain(discard=burnin, flat=True)
+    #Find the log likelihood. 
     log_prob_samples = reader.get_log_prob(discard=burnin, flat=True)
+    #Find the best-fit parameters. 
     bestid = np.argmax(log_prob_samples)
 
     return samples, copy.copy(samples[bestid]), log_prob_samples
 
-# Calculates H(z)/H0
 def Ez(redshift, omega_m, omega_lambda, omega_rad, w0, wa, ap):
+    """
+    Calculates H(z)/H0
+
+    Parameters
+    ----------
+    redshift : float
+        Redshift of the galaxy.
+    omega_m : float
+        Total matter density.
+    omega_lambda : float
+        Dark energy density.
+    omega_rad : float
+        Radiation density.
+    w0 : float
+        The dark energy equation of state at redshift zero.
+    wa : float
+        The time evolution of the dark energy equation of state.
+    ap : float
+        The pivot redshift.
+
+    Returns
+    -------
+    float
+        H(z)/H0.
+
+    """
     fz = ((1.0+redshift)**(3*(1.0+w0+wa*ap)))*np.exp(-3*wa*(redshift/(1.0+redshift)))
     omega_k = 1.0-omega_m-omega_lambda-omega_rad
     return np.sqrt(omega_rad*(1.0+redshift)**4+omega_m*(1.0+redshift)**3+omega_k*(1.0+redshift)**2+omega_lambda*fz)
 
 # The Comoving Distance Integrand
 def DistDcIntegrand(redshift, omega_m, omega_lambda, omega_rad, w0, wa, ap):
+    """
+    The integrand of the comoving distance
+
+    Parameters
+    ----------
+    redshift : float
+        Redshift of the galaxy.
+    omega_m : float
+        Total matter density.
+    omega_lambda : float
+        Dark energy density.
+    omega_rad : float
+        Radiation density.
+    w0 : float
+        The dark energy equation of state at redshift zero.
+    wa : float
+        The time evolution of the dark energy equation of state.
+    ap : float
+        The pivot redshift.
+
+    Returns
+    -------
+    float
+        The integrand of the comoving distance.
+
+    """
     return 1.0/Ez(redshift, omega_m, omega_lambda, omega_rad, w0, wa, ap)
 
 # The Comoving Distance in Mpc
 def DistDc(redshift, omega_m, omega_lambda, omega_rad, Hubble_Constant, w0, wa, ap):
+    """
+    Calculating the comoving distance in Mpc. 
+
+    Parameters
+    ----------
+    Parameters
+    ----------
+    redshift : float
+        Redshift of the galaxy.
+    omega_m : float
+        Total matter density.
+    omega_lambda : float
+        Dark energy density.
+    omega_rad : float
+        Radiation density.
+    w0 : float
+        The dark energy equation of state at redshift zero.
+    wa : float
+        The time evolution of the dark energy equation of state.
+    ap : float
+        The pivot redshift.
+
+    Returns
+    -------
+    float
+        The comoving distance in Mpc. 
+
+    """
     return (LightSpeed/Hubble_Constant)*integrate.quad(DistDcIntegrand, 0.0, redshift, args=(omega_m, omega_lambda, omega_rad, w0, wa, ap))[0]
 
     
@@ -369,11 +485,25 @@ def DistDc(redshift, omega_m, omega_lambda, omega_rad, Hubble_Constant, w0, wa, 
         
 #     return output
         
-#This function calculates the log of the posterior probability. 
 def lnpost(params):
+    """
+    Calculating the logarithmic posterior probability
+
+    Parameters
+    ----------
+    params : Numpy array
+        The input parameters.
+
+    Returns
+    -------
+    Numpy array
+        The logarithmic posterior probability.
+
+    """
 
     # This returns the log posterior distribution which is given by the log prior plus the log likelihood
     prior = lnprior(params)
+    #If the input parameters are outside of the prior range return negative infinity. 
     if not np.isfinite(prior):
         return -np.inf
     like = lnlike(params)
@@ -382,12 +512,22 @@ def lnpost(params):
 
 #This function sets the prior for each free parameter. 
 def lnprior(params):
+    """
+    Calculaing the logarithmic prior. 
 
-    # Here we define the prior for all the parameters.
-#    fsigma8, sigma_v, bsigma8, b_add_sigma8, sigma_u = params
-    # fsigma8, sigma_v, bsigma8, sigma_u, sigma_g = params
-    # fsigma8, sigma_v, bsigma8, sigma_g = params
-    # fsigma8, sigma_v, bsigma8, b_add_sigma8 = params
+    Parameters
+    ----------
+    params : Numpy array
+        The input parameters.
+
+    Returns
+    -------
+    float
+        The logarithmic prior
+
+    """
+
+    #The input parameters
     fsigma8, sigma_v, bsigma8, b_add_sigma8, sigma_g = params
 
     
@@ -423,6 +563,7 @@ def lnprior(params):
     # else:
     #     return -np.inf
     
+    #Flat prior for sigmag, same as Adams&Blake 2020 paper. 
     if (0.0 < sigma_g < 10.0):
         sigma_gprior = 1.0/10.0
     else:
@@ -432,20 +573,32 @@ def lnprior(params):
 
 #This function calculates the log-likehood of the input parameters. 
 def lnlike(params): 
+    """
+    Calculating the logarithmic likelihood with the Taylor expansion. 
+
+    Parameters
+    ----------
+    params : Numpy array
+        The input parameters.
+
+    Returns
+    -------
+    loglike : float
+        The logarithmic likelihood.
+
+    """
 
     # Return the log likelihood for a model. Here are the parameters we want to fit for.
-    # fsigma8, sigma_v, bsigma8, b_add_sigma8 = params
     fsigma8, sigma_v, bsigma8, b_add_sigma8, sigma_g = params
     
     #Find the cloest point where the first and second derivative of the log likelihood function is calculated. 
     index = np.int32(np.floor(fsigma8/step_N + 0.5))
-    # print(index)
+    
     params_fiducial = np.array([fsigma8_diff[index], params_fid[1], params_fid[2], params_fid[3], params_fid[4]])
     #Read in the calculated fiducial log likelihood and its first and second derivative. 
     loglikefid = loglikefid_all[index]
     dL = dL_all[index]
     d2L = d2L_all[index]
-    # sigma_v = params
     
     # Calculate the log likelihood using a taylor expansion at the maximum likihood point. 
     diffs = np.array([fsigma8/fsigma8_old, sigma_v, bsigma8/bsigma8_old, b_add_sigma8/bsigma8_old, sigma_g]) - params_fiducial
@@ -455,11 +608,75 @@ def lnlike(params):
     
     return loglike
 
+def grid_corr(theta, phi, k, L):
+    """
+    Calculating the grid correction. 
+
+    Parameters
+    ----------
+    theta : Numpy array
+        The polar angle.
+    phi : Numpy array
+        The azimuthal angle.
+    k : Numpy array
+        The wavevector.
+    L : float
+        The size of the grid.
+
+    Returns
+    -------
+    Numpy array
+        The grid correction with respect to k.
+
+    """
+    k_x = (k*L/2.)*np.sin(theta)*np.cos(phi)
+    k_y = (k*L/2.)*np.sin(theta)*np.sin(phi)
+    k_z = (k*L/2.)*np.cos(phi)
+    
+    return np.sinc(k_x/np.pi)*np.sinc(k_y/np.pi)*np.sinc(k_z/np.pi)*np.sin(phi)/(4.*np.pi)
+
+def tri_2_full(array):
+    """
+    Converting the upper triangular matrix to the full covariance matrix
+
+    Parameters
+    ----------
+    array : Numpy array
+        The 1D array containing the upper triangular part of the covariance matrix.
+
+    Returns
+    -------
+    output : Numpy array
+        The full covariance matrix.
+
+    """
+    nlength = len(array)
+    #Find the size of the full covariance matrix 
+    ndim = np.int16((-1. + np.sqrt(nlength*8+1.))/2.)
+    output = np.zeros((ndim, ndim))
+    j = 0
+    #Calculating the full covariance matrix. 
+    for k in range(nlength):
+        i = np.int16(1./2.*(2*ndim + 1. - np.sqrt(8.*j - 8.*k + (2.*ndim+1)**2)))
+        output[i][i+j] = array[k]
+        j += 1
+        if j >= 10 - i:
+            j = 0
+    
+    output_T = output.T
+    #Apparently changing diagonal of output_T also changes the diagonal of output. Therefore, we divide both by the factor of 2 here. 
+    np.fill_diagonal(output_T, np.diag(output_T/2))
+    output = output + output_T
+
+    return output
+    
+    
 
 ########################################################################################################### The main code below
 configfile = sys.argv[1] #input the location of the configuration file 
 pardict = ConfigObj(configfile)
 
+#Reading in the input parameters from the config file. 
 expect_file = pardict['expect_file']
 datafile = pardict['datafile']
 omega_m = float(pardict['omega_m'])
@@ -483,10 +700,10 @@ ymax = float(pardict['ymax'])
 zmin = float(pardict['zmin'])
 zmax = float(pardict['zmax'])
 
-#The name of the chain file. 
+#The location of the chain file. 
 chainfile = str('fit_pec_vel_SDSS_k0p%03d_0p%03d_gridcorr_%d_full_data_sigmau_%d_Taylor_local_remove_no_cut.hdf5' % (int(1000.0*kmin), int(1000.0*kmax_velocity), gridsize, sigma_u))
 
-
+#Number of grids in each direction. 
 nx = int(np.ceil((xmax-xmin)/gridsize))
 ny = int(np.ceil((ymax-ymin)/gridsize))
 nz = int(np.ceil((zmax-zmin)/gridsize))
@@ -517,6 +734,7 @@ for i in range(nx):
             r = np.sqrt(x**2+y**2+z**2)
             red = sp.interpolate.splev(r, red_spline, der=0)
             ez = Ez(red, omega_m, 1.0-omega_m, 0.0, -1.0, 0.0, 0.0)
+            #Find the comoving cartesian coordinate of the center of each grid and the radial distance to the grid. 
             datagrid_vec[ind,0] = x
             datagrid_vec[ind,1] = y
             datagrid_vec[ind,2] = z
@@ -529,6 +747,8 @@ factor_gg = sigma8_eff**2/0.8150**2
 factor_gv = (1.0/(1.0+effective_redshift))*Ez(effective_redshift, omega_m, 1.0-omega_m, 0.0, -1.0, 0.0, 0.0)*factor_gg
 factor_vv = ((1.0/(1.0+effective_redshift))*Ez(effective_redshift, omega_m, 1.0-omega_m, 0.0, -1.0, 0.0, 0.0))**2*factor_gg
 print(factor_gg, factor_gv, factor_vv)
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------------
             
 # Read in the random file
 data_expect_all = np.array(pd.read_csv(expect_file, header=None, skiprows=1))
@@ -600,6 +820,8 @@ log_dist_err = np.array(data["logdist_corr_err"])
 
 data_count = len(x)
 
+#------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 #Reshape the data so I can concatenate them together later. 
 x = np.reshape(x, (data_count, 1))
 y = np.reshape(y, (data_count, 1))
@@ -655,8 +877,6 @@ data_expect = norm*data_expect
 #Calculate the galaxy overdensity, if the galaxy overdensity in the random catalogue is zero. Automatically returns 100 (which will be cut out later.)
 data_gal_all = np.divide((ngrid_SDSS - data_expect), data_expect, out= 100.0*np.ones(len(data_expect)), where=data_expect!=0)
 
-# zero = np.where(data_gal_all < -2.0)[0]
-
 #Cut out all grids with galaxy overdensity over 50 because our model is not able to deal with such high non-linearity. 
 remove_galaxy = np.where(data_gal_all > 50.0)[0]
 
@@ -705,8 +925,6 @@ c = 1
 d = 0
 for j in range(8):
     #The filename of the stored components of the cross-covariance matrix. 
-    # data_file_conv_vg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr30_dv_%d_%d_sigmau%03d.dat' %(int(1000.0*kmax_velocity), c, d, int(10.0*sigma_u)))
-    # data_file_conv_vg = str('wide_angle_covariance_k0p002_0p150_gridcorr30_dv_%d_%d_sigmau%03d.dat' %(c, d, int(10.0*sigma_u)))
     # data_file_conv_vg = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_dv_%d_%d_sigmau%03d.dat' %(int(1000.0*kmax_velocity), c, d, int(10.0*sigma_u)))
     data_file_conv_vg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_dv_%d_%d_sigmau%03d.dat' %(int(1000.0*kmax_velocity), c, d, int(10.0*sigma_u)))
     print(data_file_conv_vg)
@@ -724,8 +942,6 @@ for j in range(8):
 conv_vg.append(conv_vg_sigma_u)
 
 #Read in the gridded and non-gridded version of the velocity auto-covariance matrix. Both matrices are being scaled up by 10**6 in the c code. 
-# data_file_conv_vv = str('wide_angle_covariance_k0p002_0p%03d_gridcorr30_vv_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
-# data_file_conv_vv = str('wide_angle_covariance_k0p002_0p150_gridcorr30_vv_sigmau%03d.dat' %(int(10.0*sigma_u)))
 # data_file_conv_vv = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
 data_file_conv_vv = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
 #The velocity auto-covariance matrix is being scale up by 10^6 in the c-code, so we dividing the scaling factor here. 
@@ -733,8 +949,6 @@ conv_vv_element = np.array(pd.read_csv(data_file_conv_vv, delim_whitespace=True,
 #Delete the grid cells where there is no log-distance ratio measurements. 
 conv_vv_final = np.delete(np.delete(conv_vv_element, remove_velocity, axis = 0), remove_velocity, axis = 1)
    
-# data_file_conv_vv_ng = str('wide_angle_covariance_k0p002_0p%03d_gridcorr30_vv_ng_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
-# data_file_conv_vv_ng = str('wide_angle_covariance_k0p002_0p150_gridcorr30_vv_ng_sigmau%03d.dat' %(int(10.0*sigma_u)))
 # data_file_conv_vv_ng = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_ng_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
 data_file_conv_vv_ng = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_ng_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
 conv_vv_ng_element = np.array(pd.read_csv(data_file_conv_vv_ng, delim_whitespace=True, header=None, skiprows=1))/1.0e6
@@ -750,8 +964,6 @@ a = 0
 b = 0
 for k in range(21):
     #The filename of the components of the galaxy auto-covariance matrix. 
-    # data_file_conv_gg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr30_dd_%d_%d.dat' %(int(1000.0*kmax_galaxy), b, a))
-    # data_file_conv_gg = str('wide_angle_covariance_k0p002_0p150_gridcorr30_dd_'+str(b)+'_'+str(a)+'.dat')
     # data_file_conv_gg = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_dd_%d_%d.dat' %(int(1000.0*kmax_galaxy), b, a))
     data_file_conv_gg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_dd_%d_%d.dat' %(int(1000.0*kmax_galaxy), b, a))
     print(data_file_conv_gg)
@@ -764,9 +976,6 @@ for k in range(21):
         #The filename of the components of the b_add matrices and divided off the extra factor and remove the grid cells the same as the galaxy
         #auto-covariance matrix. 
         
-        #data_file_conv_gg_badd = str('wide_angle_covariance_k0p150_0p999_gridcorr30_dd_'+str(b)+'_'+str(a)+'.dat')
-        #data_file_conv_gg_badd = str('wide_angle_covariance_k0p002_0p%03d_gridcorr30_dd_%d_%d.dat' %(int(1000.0*kmax_galaxy), b, a))
-        # data_file_conv_gg_badd = str('wide_angle_covariance_k0p%03d_0p%03d_gridcorr%d_dd_%d_%d.dat' % (int(1000.0*kmax_galaxy), int(1000.0*0.999), gridsize, b, a)) 
         # data_file_conv_gg_badd = str('/data/s4479813/wide_angle_covariance_k0p%03d_0p%03d_gridcorr%d_dd_%d_%d.dat' % (int(1000.0*kmax_galaxy), int(1000.0*0.999), gridsize, b, a))         
         data_file_conv_gg_badd = str('wide_angle_covariance_k0p%03d_0p%03d_gridcorr%d_dd_%d_%d.dat' % (int(1000.0*kmax_galaxy), int(1000.0*0.999), gridsize, b, a))         
         print(data_file_conv_gg_badd)
@@ -917,13 +1126,6 @@ if __name__ == "__main__":
     # Set up the MCMC
     # How many free parameters and walkers (this is for emcee's method)
     ndim, nwalkers = 5, 40
-    
-    # Set up the first points for the chain (for emcee we need to give each walker a random value about this point so we just sample the prior or a reasonable region)
-    # begin = [[1.0*np.random.rand(), 1000.0*np.random.rand(), 3.0*np.random.rand(), 25.0*np.random.rand(), 7.0*np.random.rand()+1.0] for i in range(nwalkers)]
-    # begin = [[1.0*np.random.rand(), 1000.0*np.random.rand(), 3.0*np.random.rand(), 7.0*np.random.rand()+1.0] for i in range(nwalkers)]
-    #The possible values are 0<=fsigma8<=1, 0<=sigmav<=1000, 0<=bsigma8<=3.
-    #begin = [[1.0*np.random.rand(), 1000.0*np.random.rand(), 0.2] for i in range(nwalkers)]
-    # begin = [[1.0*np.random.rand(), 1000.0*np.random.rand(), 3.0*np.random.rand(), 10.0*np.random.rand()] for i in range(nwalkers)]
     
     #initial guess for the MCMC algorithm. 
     begin = [[1.0*np.random.rand(), 4999.0*np.random.rand()+1.0, 3.0*np.random.rand(), 10.0*np.random.rand(), 10.0*np.random.rand()] for i in range(nwalkers)]
