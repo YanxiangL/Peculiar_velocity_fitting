@@ -20,8 +20,8 @@
 
 // Run parameters
 static double LightSpeed = 299792.458;
-double omega_m;
-double sigma_u;
+double omega_m; //The matter density. 
+double sigma_u; //The damping due to RSD for the velocity power spectrum. 
 struct fparams{ 
 	gsl_spline * spline_P; 
 	gsl_interp_accel * acc_P;
@@ -34,9 +34,11 @@ struct fparams{
 	int gridcorr;
 };	
 
+//The interpolator for the power spectra.
 gsl_interp_accel * P_mm_acc, * P_vm_acc, * P_vv_acc, * gridcorr_acc;
 gsl_spline * P_mm_spline, * P_vm_spline, * P_vv_spline, * gridcorr_spline; 
 
+//The interpolator for the integration of the correlation function. 
 gsl_interp_accel **** xi_dd_acc, **** xi_dv_acc, *** xi_vv_acc;
 gsl_spline **** xi_dd_spline, **** xi_dv_spline, *** xi_vv_spline; 
 
@@ -65,7 +67,7 @@ double D_u(double k) {//The damping term due to redshift space distortion
 	return result;
 }
 
-double conv_integrand(double k, void * p) {
+double conv_integrand(double k, void * p) {//The integrand for the covariance matrix calculation. 
 	struct fparams params = *(struct fparams *) p;
 
 	double damping = 1.0;
@@ -101,6 +103,8 @@ double conv_integral(double kmin, double kmax, double dist, int abtype, int ell,
 
     return result;
 }
+
+//Outputs of the Gaunt coefficient from mathematica. 
 
 double H_vv(int ell, double theta, double phi) {//The weighting function for velocity auto-covariance matrix. 
 
@@ -695,20 +699,38 @@ double H_dd(int ell, int p, int q, double theta, double phi) {
 	return 0;
 }
 
-void write_cov(char * covfile, int ncov, double ** cov, int order) {//create the covariance matrices files. 'Order' corresponds to the scaling of 10^order. 
+void write_cov(char * covfile, int ncov, double ** cov, int order) {//Save the upper triangular covariance matrix in binary files to save space.
 
 	FILE * fp;
 	int i, j;
-
+    /*
     if(!(fp = fopen(covfile, "w"))) {
       printf("\nERROR: Can't write in file '%s'.\n\n", covfile);
       exit(0);
     }
     fprintf(fp, "%d\n", ncov);
+	
     for (i=0; i<ncov; i++) {
 		for (j = 0; j < ncov; j++) fprintf(fp, "%12.6lf  ", pow(10.0, order)*cov[i][j]);
         fprintf(fp, "\n");
+    }*/
+	
+	if(!(fp = fopen(covfile, "wb"))) {
+      printf("\nERROR: Can't write in file '%s'.\n\n", covfile);
+      exit(0);
     }
+	
+	int nlength = ncov*(ncov+1)/2;
+	
+	double * triarray = (double *)malloc(nlength*sizeof(double));
+	//Flatten the upper triangular matrix into 1d array. 
+	for (i=0; i<ncov; i++) {
+		for (j = 0; j < ncov - i; j++) triarray[(2*ncov + 1-i)*i/2 +j] = cov[i][i+j];
+    }
+	
+	size_t written = fwrite(triarray, sizeof(double), nlength, fp);
+	printf("Number of elements written: %zu\n", written);
+	
     fclose(fp);
 
 }
@@ -727,8 +749,10 @@ typedef struct
 	int gridsize;
 	char* pkvelfile;
 	char* covfile_base;
+	char* gridcorrfile;
 } configuration;
 
+//Read in the input parameters from the config file. 
 static int handler(void* user, const char* section, const char* name,
                    const char* value)
 {
@@ -759,6 +783,8 @@ static int handler(void* user, const char* section, const char* name,
         pconfig->pkvelfile = strdup(value);
     } else if (MATCH("", "covfile_base")) {
         pconfig->covfile_base = strdup(value);
+	} else if (MATCH("", "gridcorrfile")) {
+        pconfig->gridcorrfile = strdup(value);
 	} else {
         return 0;  /* unknown section/name, error */
     }
@@ -772,8 +798,8 @@ int main(int argc, char **argv) {
     FILE * fp;
     char buf[500];
     int i, j, k, ell, veltype;
-    char gridcorrfile[500], covfile[500];
-    char * pkvelfile, * covfile_base, * configfile;
+    char covfile[500];
+    char * pkvelfile, * covfile_base, * configfile, * gridcorrfile;
 	
 	//config stores the variables read from the configuration file. 
 	configuration config;
@@ -797,19 +823,15 @@ int main(int argc, char **argv) {
 	int gridsize = config.gridsize; // The size of each grid cell
 	pkvelfile = config.pkvelfile; // The file containing the input velocity power spectrum
 	covfile_base = config.covfile_base; // The base for the output file name (other stuff will get added to the name)
+	gridcorrfile = config.gridcorrfile; //The grid correction file. 
 	
-	printf("Config loaded from '%s': kmin=%lf, kmax=%lf, xmin=%lf, xmax = %lf,\n ymin=%lf, ymax = %lf, zmin=%lf, zmax = %lf, omega_m = %lf, gridsize = %d,\n pkvelfile = %s, covfile_base = %s\n",
-        configfile, kmin, kmax, xmin, xmax, ymin, ymax, zmin, zmax, omega_m, gridsize, pkvelfile, covfile_base);
+	printf("Config loaded from '%s': kmin=%lf, kmax=%lf, xmin=%lf, xmax = %lf,\n ymin=%lf, ymax = %lf, zmin=%lf, zmax = %lf, omega_m = %lf, gridsize = %d,\n pkvelfile = %s, covfile_base = %s, gridcorrfile = %s\n",
+        configfile, kmin, kmax, xmin, xmax, ymin, ymax, zmin, zmax, omega_m, gridsize, pkvelfile, covfile_base, gridcorrfile);
 		
 	if (argc < 2) {
         printf("Error: 2 command line arguments required\n");
         exit(0);
     }
-	
-	if (job_num < 0.0) {
-		printf("Checking whether the configuration file is being read correctly\n");
-		exit(0);
-	}
 
     /*//double omega_m = 0.3121;    // The value of omega_m used to generate the simulations
     double kmin = atof(argv[1]);    // The minimum k-value to include information for
@@ -829,7 +851,7 @@ int main(int argc, char **argv) {
 	sigma_u = job_num;
 
     // Read in the tabulated correction for the gridding
-    sprintf(gridcorrfile, "./gridcorr_%d.dat", gridsize);
+    //sprintf(gridcorrfile, "./gridcorr_%d.dat", gridsize);
 
     //*****************************************************************************************//
     // I've decided to centre the grid on 0,0,0 so that we don't have any cell centres that are very close to the origin
@@ -976,6 +998,11 @@ int main(int argc, char **argv) {
     gsl_spline_init(gridcorr_spline, gridkarray, gridcorrarray, ngridcorr);
     free(gridkarray);
     free(gridcorrarray);
+	
+	if (job_num < 0.0) {
+		printf("Checking whether the configuration file is being read correctly. PASS\n");
+		exit(0);
+	}
 
     //*****************************************************************************************//
     // Now compute the covariance matrix. This is symmetric so we only need to actually calculate the forward half. However to make it more easily parallelisable
@@ -1144,9 +1171,14 @@ int main(int argc, char **argv) {
     }
     
 	//The velocity auto-covariance matrix is scaled up by 10^6, this will be cancelled out in the python code. 
-	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_vv_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+	/*sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_vv_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
     write_cov(covfile, nelements, conv_pk_vel, 6);
     sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_vv_ng_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_ng, 6);*/
+	
+	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_vv_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel, 6);
+    sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_vv_ng_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
     write_cov(covfile, nelements, conv_pk_vel_ng, 6);
 
 	printf("Done vv covariance\n");
@@ -1379,7 +1411,7 @@ int main(int argc, char **argv) {
     }
 
     //The cross-covariance matrix is scaled up. This scaling will be cancelled out in the python code. 
-	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_1_0_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+	/*sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_1_0_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
     write_cov(covfile, nelements, conv_pk_vel_gal_1_0, 8);
 	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_1_2_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
     write_cov(covfile, nelements, conv_pk_vel_gal_1_2, 10);
@@ -1394,6 +1426,23 @@ int main(int argc, char **argv) {
    	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_2_4_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
     write_cov(covfile, nelements, conv_pk_vel_gal_2_4, 12);
     sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_2_6_sigmau%03d.dat", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_2_6, 14);*/
+	
+	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_1_0_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_1_0, 8);
+	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_1_2_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_1_2, 10);
+   	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_1_4_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_1_4, 12);
+    sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_1_6_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_1_6, 14);
+	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_2_0_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_2_0, 8);
+	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_2_2_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_2_2, 10);
+   	sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_2_4_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
+    write_cov(covfile, nelements, conv_pk_vel_gal_2_4, 12);
+    sprintf(covfile, "%s_k0p%03d_0p%03d_gridcorr%02d_dv_2_6_sigmau%03d.bin", covfile_base, (int)(1000.0*kmin), (int)(1000.0*kmax), gridsize, (int) (10.0*sigma_u));
     write_cov(covfile, nelements, conv_pk_vel_gal_2_6, 14);
 
 	printf("Done dv covariance\n");
