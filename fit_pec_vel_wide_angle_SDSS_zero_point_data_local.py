@@ -23,6 +23,8 @@ import pandas as pd
 import math
 from multiprocessing import Pool
 from configobj import ConfigObj
+from astropy.io import fits
+import struct
 
 #Cross reference https://arxiv.org/abs/2209.04166 for more detail on the derivations. 
 
@@ -669,6 +671,35 @@ def tri_2_full(array):
     output = output + output_T
 
     return output
+
+def convert_bin_2_float(filename, size=8, order = 1.0):
+    """
+    Convert the binary covariance matrix to float
+
+    Parameters
+    ----------
+    filename : str
+        Location of the covariance matrix file.
+    size : int, optional
+        The size of the data type. The default is 8 for double.
+
+    Returns
+    -------
+    output : Numpy array
+        The covariance matrix in float64.
+
+    """
+    
+    output = []
+    with open(filename, 'rb') as f:
+        while True:
+            chunk = f.read(size)
+            if not chunk:
+                break
+            # convert each chunk to float 
+            output.append(struct.unpack('d', chunk))
+    output = np.array(output)/10.**order
+    return output
     
     
 
@@ -749,25 +780,59 @@ factor_vv = ((1.0/(1.0+effective_redshift))*Ez(effective_redshift, omega_m, 1.0-
 print(factor_gg, factor_gv, factor_vv)
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------------
-            
-# Read in the random file
-data_expect_all = np.array(pd.read_csv(expect_file, header=None, skiprows=1))
 
-#convert from degree to radian. 
-#The first three coloums of the random file should be RA, Dec, and redshift. 
-RA_expect = data_expect_all[:, 0]/180.0*np.pi
-Dec_expect = data_expect_all[:, 1]/180.0*np.pi
-redshift_expect = data_expect_all[:, 2]
+if pardict['filetype'] == 'csv':
+    #Assuming different columns in the csv file is seperated by white space. 
+    data_expect_all = pd.read_csv(pardict['expect_file'], sep="\s+")
+    data = pd.read_csv(pardict['datafile'], sep="\s+")
+    
+elif pardict['filetype'] == 'fits':
+    hdul_expect= fits.open(pardict['expect_file'])
+    data_expect_all = hdul_expect[1].data
+    
+    hdul_data = fits.open(pardict['datafile'])
+    data = hdul_data[1].data
+else:
+    raise ValueError('Input file type is not supported. It can only read in csv or fits files')
+    
+RA_expect = np.array(data_expect_all[pardict['RA_header']])
+Dec_expect = np.array(data_expect_all[pardict['Dec_header']])
+redshift_expect = np.array(data_expect_all[pardict['redshift_header']])
+
+RA = np.array(data[pardict['RA_header']])
+Dec = np.array(data[pardict['Dec_header']])
+redshift = np.array(data[pardict['redshift_header']])
+if np.int16(pardict['deg']) == 1:
+    RA_expect = RA_expect/180.0*np.pi
+    Dec_expect = Dec_expect/180.0*np.pi
+    
+    RA = RA/180.0*np.pi
+    Dec = Dec/180.0*np.pi
+
+# # Read in the random file
+# data_expect_all = np.array(pd.read_csv(expect_file, header=None, skiprows=1))
+
+# #convert from degree to radian. 
+# #The first three coloums of the random file should be RA, Dec, and redshift. 
+# RA_expect = data_expect_all[:, 0]/180.0*np.pi
+# Dec_expect = data_expect_all[:, 1]/180.0*np.pi
+# redshift_expect = data_expect_all[:, 2]
+
+#Convert sky coordinate to cartesian coordinate. 
 rd_expect = sp.interpolate.splev(redshift_expect, radial_spline)
-#This is the extra rotation for the SDSS PV catalogue. 
-phi = 241.0
 data_z_expect = np.sin(Dec_expect)
-data_y_expect = np.cos(Dec_expect)*np.sin(RA_expect - np.pi)
-data_x_expect = np.cos(Dec_expect)*np.cos(RA_expect - np.pi)
-xnew_expect = data_x_expect*np.cos(phi*np.pi/180.0) - data_z_expect*np.sin(phi*np.pi/180.0)
-znew_expect = data_x_expect*np.sin(phi*np.pi/180.0) + data_z_expect*np.cos(phi*np.pi/180.0)
-data_x_expect = xnew_expect
-data_z_expect = znew_expect
+data_y_expect = np.cos(Dec_expect)*np.sin(RA_expect)
+data_x_expect = np.cos(Dec_expect)*np.cos(RA_expect)
+
+#This is the extra rotation for the SDSS PV catalogue. 
+# phi = 241.0
+# data_z_expect = np.sin(Dec_expect)
+# data_y_expect = np.cos(Dec_expect)*np.sin(RA_expect - np.pi)
+# data_x_expect = np.cos(Dec_expect)*np.cos(RA_expect - np.pi)
+# xnew_expect = data_x_expect*np.cos(phi*np.pi/180.0) - data_z_expect*np.sin(phi*np.pi/180.0)
+# znew_expect = data_x_expect*np.sin(phi*np.pi/180.0) + data_z_expect*np.cos(phi*np.pi/180.0)
+# data_x_expect = xnew_expect
+# data_z_expect = znew_expect
 
 x_expect = data_x_expect*rd_expect
 y_expect = data_y_expect*rd_expect
@@ -775,7 +840,7 @@ z_expect = data_z_expect*rd_expect
 
 #Determine which grid cell the galaxy belongs to in the random catalogue. 
 data_expect = np.zeros(nelements)
-for i in range(len(data_expect_all)):
+for i in range(len(RA_expect)):
     ix = int(np.floor((x_expect[i]-xmin)/gridsize))
     iy = int(np.floor((y_expect[i]-ymin)/gridsize))
     iz = int(np.floor((z_expect[i]-zmin)/gridsize))
@@ -789,25 +854,30 @@ for i in range(len(data_expect_all)):
     data_expect[ind] += 1.0
 print(np.sum(data_expect))
 
-#Read in the data file. 
-data = dict(pd.read_csv(datafile, delim_whitespace = True, skiprows=0))
+# #Read in the data file. 
+# data = dict(pd.read_csv(datafile, delim_whitespace = True, skiprows=0))
 
-RA = np.array(data["RA"])/180.0*np.pi
-Dec = np.array(data["Dec"])/180.0*np.pi
-redshift = np.array(data["zcmb"])
+# RA = np.array(data["RA"])/180.0*np.pi
+# Dec = np.array(data["Dec"])/180.0*np.pi
+# redshift = np.array(data["zcmb"])
 
 #Convert redshift to distance. 
 rd = sp.interpolate.splev(redshift, radial_spline)
 
-#Same rotation as the random data. 
-phi = 241.0
+#Convert sky coordinate to Cartesian coordinate
 data_z = np.sin(Dec)
-data_y = np.cos(Dec)*np.sin(RA - np.pi)
-data_x = np.cos(Dec)*np.cos(RA - np.pi)
-xnew = data_x*np.cos(phi*np.pi/180.0) - data_z*np.sin(phi*np.pi/180.0)
-znew = data_x*np.sin(phi*np.pi/180.0) + data_z*np.cos(phi*np.pi/180.0)
-data_x = xnew
-data_z = znew
+data_y = np.cos(Dec)*np.sin(RA)
+data_x = np.cos(Dec)*np.cos(RA)
+
+#Same rotation as the random data. 
+# phi = 241.0
+# data_z = np.sin(Dec)
+# data_y = np.cos(Dec)*np.sin(RA - np.pi)
+# data_x = np.cos(Dec)*np.cos(RA - np.pi)
+# xnew = data_x*np.cos(phi*np.pi/180.0) - data_z*np.sin(phi*np.pi/180.0)
+# znew = data_x*np.sin(phi*np.pi/180.0) + data_z*np.cos(phi*np.pi/180.0)
+# data_x = xnew
+# data_z = znew
 
 x = data_x*rd
 y = data_y*rd
@@ -815,8 +885,15 @@ z = data_z*rd
 
 
 #Read in the log-distance ratios and their errors. 
-log_dist = np.array(data["logdist_corr"])
-log_dist_err = np.array(data["logdist_corr_err"])
+# log_dist = np.array(data["logdist_corr"])
+# log_dist_err = np.array(data["logdist_corr_err"])
+
+log_dist = np.array(data[pardict['logdist_header']])
+log_dist_err = np.array(data[pardict['logdist_err_header']])
+
+if pardict['filetype'] == 'fits':
+    hdul_expect.close()
+    hdul_data.close()
 
 data_count = len(x)
 
@@ -835,12 +912,12 @@ data_SDSS_all = np.concatenate((x,y,z,log_dist,log_dist_err), axis=1)
 #Just checking all the data is within the grid we defined. 
 print(np.min(x), np.max(x), np.min(y), np.max(y), np.min(z), np.max(z))
 
-#Cutting out data that are more than 10 sigma away from the mean. 
+#Cutting out data that are more than N (specified by the user) sigma away from the mean. 
 data_SDSS = []
 median_log_dist = np.median(log_dist)
 for i in range(len(data_SDSS_all)):
     sigma = np.sqrt((data_SDSS_all[i, 3] - median_log_dist)**2/data_SDSS_all[i, 4]**2)
-    if sigma > 10.0:
+    if sigma > np.float64(pardict['sigma_cut']):
         continue
     data_SDSS.append(data_SDSS_all[i])
     
@@ -877,8 +954,8 @@ data_expect = norm*data_expect
 #Calculate the galaxy overdensity, if the galaxy overdensity in the random catalogue is zero. Automatically returns 100 (which will be cut out later.)
 data_gal_all = np.divide((ngrid_SDSS - data_expect), data_expect, out= 100.0*np.ones(len(data_expect)), where=data_expect!=0)
 
-#Cut out all grids with galaxy overdensity over 50 because our model is not able to deal with such high non-linearity. 
-remove_galaxy = np.where(data_gal_all > 50.0)[0]
+#Cut out all grids with galaxy overdensity over the overdensity cut specidied by the user because our model is not able to deal with such high non-linearity. 
+remove_galaxy = np.where(data_gal_all > np.float64(pardict['overdensity_cut']))[0]
 
 data_gal = np.delete(data_gal_all, remove_galaxy)
 ncomp_galaxy = len(data_gal)
@@ -926,10 +1003,13 @@ d = 0
 for j in range(8):
     #The filename of the stored components of the cross-covariance matrix. 
     # data_file_conv_vg = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_dv_%d_%d_sigmau%03d.dat' %(int(1000.0*kmax_velocity), c, d, int(10.0*sigma_u)))
-    data_file_conv_vg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_dv_%d_%d_sigmau%03d.dat' %(int(1000.0*kmax_velocity), c, d, int(10.0*sigma_u)))
+    # data_file_conv_vg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_dv_%d_%d_sigmau%03d.dat' %(int(1000.0*kmax_velocity), c, d, int(10.0*sigma_u)))
+    data_file_conv_vg = str("%s_k0p%03d_0p%03d_gridcorr%02d_dv_%d_%d_sigmau%03d.bin" %(pardict['covfile_base'], (int)(1000.0*kmin), 
+                                                                        (int)(1000.0*kmax_velocity), int(pardict['gridsize']), c, d, int(10.0*sigma_u)))
     print(data_file_conv_vg)
     #The value of the covariance matrix can be extremely small, so we scale it up by 10**(8+d) in the c code. 
-    conv_vg_element = np.array(pd.read_csv(data_file_conv_vg, delim_whitespace=True, header=None, skiprows=1))/10**(8+d)
+    # conv_vg_element = np.array(pd.read_csv(data_file_conv_vg, delim_whitespace=True, header=None, skiprows=1))/10**(8+d)
+    conv_vg_element = convert_bin_2_float(data_file_conv_vg)
     #Delete the elements where there is no log-distance ratio measurement or overdensity is over 50. 
     conv_vg_final = np.delete(np.delete(conv_vg_element, remove_velocity, axis = 0), remove_galaxy, axis = 1)
     #Multiply the extra factor to convert it to the effective redshift. 
@@ -943,15 +1023,22 @@ conv_vg.append(conv_vg_sigma_u)
 
 #Read in the gridded and non-gridded version of the velocity auto-covariance matrix. Both matrices are being scaled up by 10**6 in the c code. 
 # data_file_conv_vv = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
-data_file_conv_vv = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
+# data_file_conv_vv = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
+data_file_conv_vv = str("%s_k0p%03d_0p%03d_gridcorr%02d_vv_sigmau%03d.bin" %(pardict['covfile_base'], (int)(1000.0*kmin), 
+                                                                    (int)(1000.0*kmax_velocity), int(pardict['gridsize']), int(10.0*sigma_u)))
+
 #The velocity auto-covariance matrix is being scale up by 10^6 in the c-code, so we dividing the scaling factor here. 
-conv_vv_element = np.array(pd.read_csv(data_file_conv_vv, delim_whitespace=True, header=None, skiprows=1))/1.0e6
+# conv_vv_element = np.array(pd.read_csv(data_file_conv_vv, delim_whitespace=True, header=None, skiprows=1))/1.0e6
+conv_vv_element = convert_bin_2_float(data_file_conv_vv)
 #Delete the grid cells where there is no log-distance ratio measurements. 
 conv_vv_final = np.delete(np.delete(conv_vv_element, remove_velocity, axis = 0), remove_velocity, axis = 1)
    
 # data_file_conv_vv_ng = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_ng_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
-data_file_conv_vv_ng = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_ng_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
-conv_vv_ng_element = np.array(pd.read_csv(data_file_conv_vv_ng, delim_whitespace=True, header=None, skiprows=1))/1.0e6
+# data_file_conv_vv_ng = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_vv_ng_sigmau%03d.dat' %(int(1000.0*kmax_velocity), int(10.0*sigma_u)))
+data_file_conv_vv_ng = str("%s_k0p%03d_0p%03d_gridcorr%02d_vv_ng_sigmau%03d.bin" %(pardict['covfile_base'], (int)(1000.0*kmin), 
+                                                                    (int)(1000.0*kmax_velocity), int(pardict['gridsize']), int(10.0*sigma_u)))
+# conv_vv_ng_element = np.array(pd.read_csv(data_file_conv_vv_ng, delim_whitespace=True, header=None, skiprows=1))/1.0e6
+conv_vv_ng_element = convert_bin_2_float(data_file_conv_vv_ng)
 conv_vv_ng_final = np.delete(np.delete(conv_vv_ng_element, remove_velocity, axis = 0), remove_velocity, axis = 1)
 
 #Accouting the for the shot-noise of the velocity auto-covariance matrix (equation (31) in the paper). 
@@ -965,10 +1052,13 @@ b = 0
 for k in range(21):
     #The filename of the components of the galaxy auto-covariance matrix. 
     # data_file_conv_gg = str('/data/s4479813/wide_angle_covariance_k0p002_0p%03d_gridcorr20_dd_%d_%d.dat' %(int(1000.0*kmax_galaxy), b, a))
-    data_file_conv_gg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_dd_%d_%d.dat' %(int(1000.0*kmax_galaxy), b, a))
+    # data_file_conv_gg = str('wide_angle_covariance_k0p002_0p%03d_gridcorr20_dd_%d_%d.dat' %(int(1000.0*kmax_galaxy), b, a))
+    data_file_conv_gg = str("%s_k0p%03d_0p%03d_gridcorr%02d_dd_%d_%d.bin" %(pardict['covfile_base'], (int)(1000.0*kmin), 
+                                                                        (int)(1000.0*kmax_velocity), int(pardict['gridsize']), b, a))
     print(data_file_conv_gg)
     #divided the scaling factor in the c code. 
-    conv_gg_element = np.array(pd.read_csv(data_file_conv_gg, delim_whitespace=True, header=None, skiprows=1))/10**(8+a)
+    # conv_gg_element = np.array(pd.read_csv(data_file_conv_gg, delim_whitespace=True, header=None, skiprows=1))/10**(8+a)
+    conv_gg_element = convert_bin_2_float(data_file_conv_gg)
     #Delete the grid cells where the galaxy overdensity is over 50. 
     conv_gg_final = (np.delete(np.delete(conv_gg_element, remove_galaxy, axis = 0), remove_galaxy, axis = 1)).astype('float64')
     conv_gg.append(factor_gg*conv_gg_final)
@@ -977,9 +1067,12 @@ for k in range(21):
         #auto-covariance matrix. 
         
         # data_file_conv_gg_badd = str('/data/s4479813/wide_angle_covariance_k0p%03d_0p%03d_gridcorr%d_dd_%d_%d.dat' % (int(1000.0*kmax_galaxy), int(1000.0*0.999), gridsize, b, a))         
-        data_file_conv_gg_badd = str('wide_angle_covariance_k0p%03d_0p%03d_gridcorr%d_dd_%d_%d.dat' % (int(1000.0*kmax_galaxy), int(1000.0*0.999), gridsize, b, a))         
+        # data_file_conv_gg_badd = str('wide_angle_covariance_k0p%03d_0p%03d_gridcorr%d_dd_%d_%d.dat' % (int(1000.0*kmax_galaxy), int(1000.0*0.999), gridsize, b, a))         
+        data_file_conv_gg_badd = str("%s_k0p%03d_0p%03d_gridcorr%02d_dd_%d_%d.bin" %(pardict['covfile_base'], (int)(1000.0*float(pardict['kmin_badd'])), 
+                                                                            (int)(1000.0*float(pardict['kmax_badd'])), int(pardict['gridsize']), b, a))
         print(data_file_conv_gg_badd)
-        conv_gg_badd_element = np.array(pd.read_csv(data_file_conv_gg_badd, delim_whitespace=True, header=None, skiprows=1))/10**(8+a)
+        # conv_gg_badd_element = np.array(pd.read_csv(data_file_conv_gg_badd, delim_whitespace=True, header=None, skiprows=1))/10**(8+a)
+        conv_gg_badd_element = convert_bin_2_float(data_file_conv_gg_badd)
         conv_gg_badd_final = (np.delete(np.delete(conv_gg_badd_element, remove_galaxy, axis = 0), remove_galaxy, axis = 1)).astype('float64')
         conv_gg_badd.append(factor_gg*conv_gg_badd_final)
         
@@ -1107,7 +1200,8 @@ if __name__ == "__main__":
     
     #Compute the fiducial log-likelihood and its first and second derivative at 21 different points. 
     start = time.time()
-    N = 21
+    #The number of grids along the fsigma8 axis. 
+    N = np.int16(pardict['N_grid'])
     fsigma8_diff = np.linspace(0.0, 1.0, N)/fsigma8_old
     step_N = 1.0/np.float32(N-1)
     loglikefid_all = []
