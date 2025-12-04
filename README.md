@@ -5,6 +5,6 @@
 4. To run the python code, the easiest way is to create a new python virtual environment and run pip install -r requirements.txt to install all the required paskages. The python code reads in a config file (config.ini) that contains the input cosmological parameters and the location of the data and random files. Remember to change the config file if you are using a different dataset. <br />
 5. The grid correction files and the power spectrum we used to analyse the SDSS PV catalogue is in the grid_correction folder. The data file is in the data folder.  <br />
 6. Our python and c code only calculate the covariance matrix with the Taylor expansion of D_g up to the third order. You can use the Mathematica notebook provided to calculate the covariance matrix with a higher order of Taylor expansion. <br />
-7. The mocks and random of DESI can be accessed through this website https://zenodo.org/record/6640513. <br />
+7. The mocks and random of DESI will be released soon. <br />
 8. To copy this repository, run "git clone https://github.com/YanxiangL/Peculiar_velocity_fitting.git". <br />
 9. The derivation of the analytical covariance matrix is given in this paper: https://arxiv.org/abs/2209.04166. Please cite this paper if you are using the code. 
